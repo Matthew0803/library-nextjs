@@ -1,8 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  // Remove trailingSlash for Vercel deployment
-  // trailingSlash: true,
+  // Configure for Vercel deployment (remove static export settings)
   
   // Keep images optimized for better performance
   images: {
