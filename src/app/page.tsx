@@ -96,7 +96,7 @@ export default function LibraryManagement() {
       setBooks(data.books || [])
     } catch (error) {
       console.error('Error fetching books:', error)
-      setError('Failed to fetch books. Please ensure the backend server is running at http://localhost:5000.')
+      setError('Failed to fetch books. Please ensure the backend server is running.')
     }
     setLoading(false)
   }
