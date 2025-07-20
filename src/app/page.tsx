@@ -115,15 +115,20 @@ export default function LibraryManagement() {
   // Add new book
   const addBook = async () => {
     try {
+      const requestData = {
+        ...formData,
+        publication_year: formData.publication_year ? parseInt(formData.publication_year) : null
+      }
+      
+      // Debug: Log the data being sent
+      console.log('Sending book data:', requestData)
+      
       const response = await fetch(`${API_BASE}/books`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          ...formData,
-          publication_year: formData.publication_year ? parseInt(formData.publication_year) : null
-        }),
+        body: JSON.stringify(requestData),
       })
       
       if (response.ok) {
@@ -138,9 +143,16 @@ export default function LibraryManagement() {
         })
         fetchBooks(searchTerm)
         fetchStats()
+      } else {
+        // Handle API errors
+        const errorData = await response.json().catch(() => ({ message: 'Unknown error' }))
+        console.error('API Error:', response.status, errorData)
+        console.error('Request data that caused error:', requestData)
+        alert(`Failed to add book: ${errorData.message || `HTTP ${response.status}`}`)
       }
     } catch (error) {
       console.error('Error adding book:', error)
+      alert('Failed to add book. Please check your connection and try again.')
     }
   }
 
