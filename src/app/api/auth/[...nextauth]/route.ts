@@ -2,7 +2,6 @@ import NextAuth from 'next-auth'
 import GoogleProvider from 'next-auth/providers/google'
 import type { NextAuthOptions } from 'next-auth'
 import type { UserRole } from '@/types/auth'
-import jwt from 'jsonwebtoken'
 
 // Extend the built-in session and user types
 declare module 'next-auth' {
@@ -29,7 +28,7 @@ declare module 'next-auth/jwt' {
   }
 }
 
-export const authOptions: NextAuthOptions = {
+const authOptions: NextAuthOptions = {
   providers: [
     GoogleProvider({
       clientId: process.env.GOOGLE_CLIENT_ID!,
