@@ -23,21 +23,7 @@ export default function AdminUsersPage() {
   const [error, setError] = useState<string | null>(null)
   const [searchTerm, setSearchTerm] = useState('')
 
-  // Only admins can access this page
-  if (status === 'loading') {
-    return (
-      <div className="flex items-center justify-center min-h-screen">
-        <Loader2 className="h-8 w-8 animate-spin" />
-      </div>
-    )
-  }
-
-  if (!session?.user || session.user.role !== 'admin') {
-    router.push('/')
-    return null
-  }
-
-  // Fetch users
+  // Fetch users function
   const fetchUsers = async () => {
     try {
       setIsLoading(true)
@@ -57,10 +43,26 @@ export default function AdminUsersPage() {
     }
   }
 
-  // Load users on mount
+  // Load users on mount - this useEffect must be before any early returns
   useEffect(() => {
-    fetchUsers()
-  }, [])
+    if (session?.user?.role === 'admin') {
+      fetchUsers()
+    }
+  }, [session])
+
+  // Only admins can access this page
+  if (status === 'loading') {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <Loader2 className="h-8 w-8 animate-spin" />
+      </div>
+    )
+  }
+
+  if (!session?.user || session.user.role !== 'admin') {
+    router.push('/')
+    return null
+  }
 
   // Filter users based on search term
   const filteredUsers = users.filter(user => 

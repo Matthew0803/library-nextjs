@@ -68,7 +68,7 @@ export function PermissionWrapper({
           {errorMessage || 'Access Denied'}
         </p>
         <p className="text-sm text-yellow-600 dark:text-yellow-500 mt-1">
-          You don't have permission to view this content. Required role: {roles.join(' or ')}
+          You don&apos;t have permission to view this content. Required role: {roles.join(' or ')}
         </p>
       </div>
     )
