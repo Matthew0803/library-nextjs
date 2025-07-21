@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { useSession } from 'next-auth/react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -9,6 +10,8 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Search, Plus, BookOpen, CheckCircle, XCircle, Edit, Trash2, User, Calendar } from 'lucide-react'
+import { AuthHeader } from './components/AuthHeader'
+import { PermissionWrapper, LibrarianOrAdmin, AdminOnly, AuthenticatedOnly } from './components/PermissionWrapper'
 
 // API configuration - will be updated for production
 const API_BASE = process.env.NODE_ENV === 'production' 
@@ -55,6 +58,7 @@ interface CheckoutData {
 }
 
 export default function LibraryManagement() {
+  const { data: session, status } = useSession()
   const [books, setBooks] = useState<Book[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -86,34 +90,158 @@ export default function LibraryManagement() {
   // Fetch books from API
   const fetchBooks = async (search = '') => {
     setLoading(true)
-    setError(null) // Reset error state on new fetch
+    setError(null)
     try {
       const url = search 
         ? `${API_BASE}/books?search=${encodeURIComponent(search)}`
         : `${API_BASE}/books`
+      
+      console.log('Fetching books from:', url)
       const response = await fetch(url)
+      console.log('Books response status:', response.status)
+      
+      if (!response.ok) {
+        const errorText = await response.text()
+        console.error('Error response:', errorText)
+        throw new Error(`HTTP error! status: ${response.status}, ${errorText}`)
+      }
+      
       const data = await response.json()
-      setBooks(data.books || [])
+      console.log('Books data received:', data)
+      
+      // Handle both array and object with books property for backward compatibility
+      const booksData = Array.isArray(data) ? data : (data.books || [])
+      setBooks(booksData)
+      
+      // If we have books, also update the stats based on the books data
+      if (booksData.length > 0) {
+        const stats = calculateStatsFromBooks(booksData)
+        console.log('Calculated stats from books:', stats)
+        setStats(stats)
+      }
     } catch (error) {
-      console.error('Error fetching books:', error)
-      setError('Failed to fetch books. Please ensure the backend server is running.')
+      console.error('Error in fetchBooks:', error)
+      setError('Failed to fetch books. Please check your connection and try again.')
+      setBooks([])
+    } finally {
+      setLoading(false)
     }
-    setLoading(false)
+  }
+  
+  // Calculate stats from books data
+  const calculateStatsFromBooks = (books: Book[]) => {
+    const now = new Date()
+    return {
+      total_books: books.length,
+      available_books: books.filter(book => !book.is_checked_out).length,
+      checked_out_books: books.filter(book => book.is_checked_out).length,
+      overdue_books: books.filter(book => {
+        if (!book.due_date) return false
+        const dueDate = new Date(book.due_date)
+        return book.is_checked_out && dueDate < now
+      }).length
+    }
   }
 
   // Fetch library statistics
   const fetchStats = async () => {
+    console.log('Fetching stats from:', `${API_BASE}/books/stats`)
+    
+    // Check if user is authenticated
+    if (!session?.user) {
+      console.log('No session available for stats fetch')
+      return
+    }
+    
     try {
-      const response = await fetch(`${API_BASE}/books/stats`)
+      // Get the access token from the session
+      const accessToken = session.accessToken || ''
+      
+      // Debug: Log session and token info
+      console.log('Session object:', session)
+      console.log('Access token:', accessToken)
+      console.log('Token length:', accessToken.length)
+      
+      // First, exchange Google token for Flask JWT tokens
+      const authResponse = await fetch(`${API_BASE}/auth/google`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          token: accessToken
+        })
+      })
+      
+      if (!authResponse.ok) {
+        console.error('Authentication failed:', await authResponse.text())
+        return
+      }
+      
+      const authData = await authResponse.json()
+      const flaskJWT = authData.access_token
+      
+      console.log('Flask JWT received:', flaskJWT ? 'Yes' : 'No')
+      console.log('Flask JWT length:', flaskJWT?.length || 0)
+      
+      // Now use Flask JWT for the actual API call
+      console.log('Making API call to:', `${API_BASE}/books/stats`)
+      const response = await fetch(`${API_BASE}/books/stats`, {
+        headers: {
+          'Authorization': `Bearer ${flaskJWT}`,
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include',
+      })
+      console.log('Stats response status:', response.status)
+      console.log('Stats response ok:', response.ok)
+      
+      if (!response.ok) {
+        const errorText = await response.text()
+        console.error('Error response:', errorText)
+        throw new Error(`HTTP error! status: ${response.status}, ${errorText}`)
+      }
+      
       const data = await response.json()
-      setStats(data)
+      console.log('Stats data received:', data)
+      
+      // Ensure we have valid data before setting state
+      if (data && (data.total_books !== undefined || data.available_books !== undefined)) {
+        setStats({
+          total_books: data.total_books || 0,
+          available_books: data.available_books || 0,
+          checked_out_books: data.checked_out_books || 0,
+          overdue_books: data.overdue_books || 0
+        })
+      } else {
+        console.error('Invalid stats data format:', data)
+        setStats({
+          total_books: 0,
+          available_books: 0,
+          checked_out_books: 0,
+          overdue_books: 0
+        })
+      }
     } catch (error) {
-      console.error('Error fetching stats:', error)
+      console.error('Error in fetchStats:', error)
+      // Set default values on error
+      setStats({
+        total_books: 0,
+        available_books: 0,
+        checked_out_books: 0,
+        overdue_books: 0
+      })
     }
   }
 
   // Add new book
   const addBook = async () => {
+    if (!session) {
+      console.error('No active session')
+      alert('You must be logged in to add a book')
+      return
+    }
+    
     try {
       const requestData = {
         ...formData,
@@ -122,14 +250,62 @@ export default function LibraryManagement() {
       
       // Debug: Log the data being sent
       console.log('Sending book data:', requestData)
+      console.log('Session:', session)
       
-      const response = await fetch(`${API_BASE}/books`, {
+      // Get the Google access token from the session
+      const googleToken = session.accessToken || ''
+      
+      if (!googleToken) {
+        console.error('No Google access token available in session')
+        alert('Authentication error: Please sign in again')
+        return
+      }
+      
+      console.log('Using Google token for authentication')
+      console.log('Google token (first 50 chars):', googleToken.substring(0, 50) + '...')
+      console.log('Google token length:', googleToken.length)
+      
+      // First, exchange Google token for Flask JWT tokens
+      const authResponse = await fetch(`${API_BASE}/auth/google`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
+        body: JSON.stringify({
+          token: googleToken
+        })
+      })
+      
+      console.log('Auth response status:', authResponse.status)
+      
+      if (!authResponse.ok) {
+        const errorText = await authResponse.text()
+        console.error('Authentication failed with status:', authResponse.status)
+        console.error('Error response:', errorText)
+        alert(`Authentication failed: ${errorText}. Please sign in again.`)
+        return
+      }
+      
+      const authData = await authResponse.json()
+      const flaskJWT = authData.access_token
+      
+      console.log('Flask JWT received:', flaskJWT ? 'Yes' : 'No')
+      console.log('Flask JWT length:', flaskJWT?.length || 0)
+      
+      // Now use Flask JWT for the actual API call
+      console.log('Making API call to:', `${API_BASE}/books`)
+      const response = await fetch(`${API_BASE}/books`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${flaskJWT}`,
+        },
+        credentials: 'include',
         body: JSON.stringify(requestData),
       })
+      
+      console.log('API response status:', response.status)
+      console.log('API response ok:', response.ok)
       
       if (response.ok) {
         setIsAddDialogOpen(false)
@@ -158,14 +334,28 @@ export default function LibraryManagement() {
 
   // Update book
   const updateBook = async () => {
-    if (!selectedBook) return
+    if (!selectedBook || !session) {
+      console.error('No book selected or no active session')
+      alert('You must be logged in to update a book')
+      return
+    }
     
     try {
+      const accessToken = session.accessToken || ''
+      
+      if (!accessToken) {
+        console.error('No access token available in session')
+        alert('Authentication error: Please sign in again')
+        return
+      }
+      
       const response = await fetch(`${API_BASE}/books/${selectedBook.id}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
+          'Authorization': `Bearer ${accessToken}`,
         },
+        credentials: 'include',
         body: JSON.stringify({
           ...formData,
           publication_year: formData.publication_year ? parseInt(formData.publication_year) : null
@@ -176,6 +366,10 @@ export default function LibraryManagement() {
         setIsEditDialogOpen(false)
         setSelectedBook(null)
         fetchBooks(searchTerm)
+      } else {
+        const errorData = await response.json().catch(() => ({}))
+        console.error('Failed to update book:', response.status, errorData)
+        alert(`Failed to update book: ${errorData.message || `HTTP ${response.status}`}`)
       }
     } catch (error) {
       console.error('Error updating book:', error)
@@ -184,10 +378,15 @@ export default function LibraryManagement() {
 
   // Delete book
   const deleteBook = async (bookId: number) => {
+    if (!session) return
+    
     if (window.confirm('Are you sure you want to delete this book?')) {
       try {
         const response = await fetch(`${API_BASE}/books/${bookId}`, {
           method: 'DELETE',
+          headers: {
+            'Authorization': `Bearer ${session.accessToken}`,
+          },
         })
         
         if (response.ok) {
@@ -202,13 +401,14 @@ export default function LibraryManagement() {
 
   // Checkout book
   const checkoutBook = async () => {
-    if (!selectedBook) return
+    if (!selectedBook || !session) return
     
     try {
       const response = await fetch(`${API_BASE}/books/${selectedBook.id}/checkout`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.accessToken}`,
         },
         body: JSON.stringify(checkoutData),
       })
@@ -231,14 +431,37 @@ export default function LibraryManagement() {
 
   // Checkin book
   const checkinBook = async (bookId: number) => {
+    if (!session) {
+      console.error('No active session')
+      alert('You must be logged in to check in a book')
+      return
+    }
+    
     try {
+      const accessToken = session.accessToken || ''
+      
+      if (!accessToken) {
+        console.error('No access token available in session')
+        alert('Authentication error: Please sign in again')
+        return
+      }
+      
       const response = await fetch(`${API_BASE}/books/${bookId}/checkin`, {
         method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${accessToken}`,
+        },
+        credentials: 'include',
       })
       
       if (response.ok) {
         fetchBooks(searchTerm)
         fetchStats()
+      } else {
+        const errorData = await response.json().catch(() => ({}))
+        console.error('Failed to check in book:', response.status, errorData)
+        alert(`Failed to check in book: ${errorData.message || `HTTP ${response.status}`}`)
       }
     } catch (error) {
       console.error('Error checking in book:', error)
@@ -271,154 +494,190 @@ export default function LibraryManagement() {
     setIsCheckoutDialogOpen(true)
   }
 
-  // Load initial data
+  // Load initial data when component mounts and user is authenticated
   useEffect(() => {
+    // Always fetch books and stats regardless of session
+    // since the backend API is public for GET requests
     fetchBooks()
     fetchStats()
-  }, [])
+    
+    // Debug: Log the current session and role
+    if (session) {
+      console.log('Current session:', session)
+      console.log('User role:', session.user?.role)
+    }
+  }, []) // Empty dependency array means this runs once on mount
+
+  // Show authentication loading state
+  if (status === 'loading') {
+    return (
+      <div className="min-h-screen bg-gray-50">
+        <AuthHeader />
+        <div className="container mx-auto px-4 py-8">
+          <div className="flex items-center justify-center h-64">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  // Show login prompt for unauthenticated users
+  if (!session) {
+    return (
+      <div className="min-h-screen bg-gray-50">
+        <AuthHeader />
+        <div className="container mx-auto px-4 py-8">
+          <div className="text-center py-16">
+            <BookOpen className="h-16 w-16 mx-auto text-blue-600 mb-4" />
+            <h2 className="text-2xl font-bold mb-2">Welcome to Library Management</h2>
+            <p className="text-gray-600 mb-6">Please sign in to access the library system</p>
+          </div>
+        </div>
+      </div>
+    )
+  }
 
   return (
-    <div className="min-h-screen bg-gray-50 p-4">
-      <div className="max-w-7xl mx-auto">
-        {/* Header */}
-        <div className="mb-8">
-          <h1 className="text-4xl font-bold text-gray-900 mb-2 flex items-center gap-2">
-            <BookOpen className="h-8 w-8" />
-            Library Management System
-          </h1>
-          <p className="text-gray-600">Manage your library&apos;s book collection with ease</p>
-        </div>
-
+    <div className="min-h-screen bg-gray-50">
+      <AuthHeader />
+      
+      <div className="container mx-auto px-4 py-8">
         {/* Statistics Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
           <Card>
-            <CardHeader className="pb-2">
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Total Books</CardTitle>
+              <BookOpen className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{stats.total_books || 0}</div>
+              <div className="text-2xl font-bold">{stats.total_books}</div>
             </CardContent>
           </Card>
           <Card>
-            <CardHeader className="pb-2">
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Available</CardTitle>
+              <CheckCircle className="h-4 w-4 text-green-600" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-green-600">{stats.available_books || 0}</div>
+              <div className="text-2xl font-bold text-green-600">{stats.available_books}</div>
             </CardContent>
           </Card>
           <Card>
-            <CardHeader className="pb-2">
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Checked Out</CardTitle>
+              <User className="h-4 w-4 text-blue-600" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-blue-600">{stats.checked_out_books || 0}</div>
+              <div className="text-2xl font-bold text-blue-600">{stats.checked_out_books}</div>
             </CardContent>
           </Card>
           <Card>
-            <CardHeader className="pb-2">
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Overdue</CardTitle>
+              <XCircle className="h-4 w-4 text-red-600" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-red-600">{stats.overdue_books || 0}</div>
+              <div className="text-2xl font-bold text-red-600">{stats.overdue_books}</div>
             </CardContent>
           </Card>
         </div>
 
-        {/* Search and Add Book */}
+        {/* Search and Add Book Section */}
         <div className="flex flex-col sm:flex-row gap-4 mb-6">
           <form onSubmit={handleSearch} className="flex-1 flex gap-2">
-            <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
-              <Input
-                type="text"
-                placeholder="Search books by title, author, genre..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="pl-10"
-              />
-            </div>
-            <Button type="submit">Search</Button>
+            <Input
+              type="text"
+              placeholder="Search books by title or author..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="flex-1"
+            />
+            <Button type="submit" variant="outline">
+              <Search className="h-4 w-4" />
+            </Button>
           </form>
           
-          <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
-            <DialogTrigger asChild>
-              <Button className="flex items-center gap-2">
-                <Plus className="h-4 w-4" />
-                Add Book
-              </Button>
-            </DialogTrigger>
-            <DialogContent className="sm:max-w-[425px]">
-              <DialogHeader>
-                <DialogTitle>Add New Book</DialogTitle>
-                <DialogDescription>
-                  Add a new book to the library collection.
-                </DialogDescription>
-              </DialogHeader>
-              <div className="grid gap-4 py-4">
-                <div className="grid gap-2">
-                  <Label htmlFor="title">Title *</Label>
-                  <Input
-                    id="title"
-                    value={formData.title}
-                    onChange={(e) => setFormData({...formData, title: e.target.value})}
-                    required
-                  />
-                </div>
-                <div className="grid gap-2">
-                  <Label htmlFor="author">Author *</Label>
-                  <Input
-                    id="author"
-                    value={formData.author}
-                    onChange={(e) => setFormData({...formData, author: e.target.value})}
-                    required
-                  />
-                </div>
-                <div className="grid grid-cols-2 gap-2">
-                  <div className="grid gap-2">
-                    <Label htmlFor="genre">Genre</Label>
-                    <Input
-                      id="genre"
-                      value={formData.genre}
-                      onChange={(e) => setFormData({...formData, genre: e.target.value})}
-                    />
-                  </div>
-                  <div className="grid gap-2">
-                    <Label htmlFor="year">Year</Label>
-                    <Input
-                      id="year"
-                      type="number"
-                      value={formData.publication_year}
-                      onChange={(e) => setFormData({...formData, publication_year: e.target.value})}
-                    />
-                  </div>
-                </div>
-                <div className="grid gap-2">
-                  <Label htmlFor="isbn">ISBN</Label>
-                  <Input
-                    id="isbn"
-                    value={formData.isbn}
-                    onChange={(e) => setFormData({...formData, isbn: e.target.value})}
-                  />
-                </div>
-                <div className="grid gap-2">
-                  <Label htmlFor="description">Description</Label>
-                  <Textarea
-                    id="description"
-                    value={formData.description}
-                    onChange={(e) => setFormData({...formData, description: e.target.value})}
-                    rows={3}
-                  />
-                </div>
-              </div>
-              <div className="flex justify-end gap-2">
-                <Button variant="outline" onClick={() => setIsAddDialogOpen(false)}>
-                  Cancel
+          <LibrarianOrAdmin>
+            <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
+              <DialogTrigger asChild>
+                <Button className="flex items-center gap-2">
+                  <Plus className="h-4 w-4" />
+                  Add Book
                 </Button>
-                <Button onClick={addBook}>Add Book</Button>
-              </div>
-            </DialogContent>
-          </Dialog>
+              </DialogTrigger>
+              <DialogContent className="sm:max-w-[425px]">
+                <DialogHeader>
+                  <DialogTitle>Add New Book</DialogTitle>
+                  <DialogDescription>
+                    Enter the details of the new book to add to the library.
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="grid gap-4 py-4">
+                  <div className="grid gap-2">
+                    <Label htmlFor="title">Title *</Label>
+                    <Input
+                      id="title"
+                      value={formData.title}
+                      onChange={(e) => setFormData({...formData, title: e.target.value})}
+                      required
+                    />
+                  </div>
+                  <div className="grid gap-2">
+                    <Label htmlFor="author">Author *</Label>
+                    <Input
+                      id="author"
+                      value={formData.author}
+                      onChange={(e) => setFormData({...formData, author: e.target.value})}
+                      required
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="grid gap-2">
+                      <Label htmlFor="genre">Genre</Label>
+                      <Input
+                        id="genre"
+                        value={formData.genre}
+                        onChange={(e) => setFormData({...formData, genre: e.target.value})}
+                      />
+                    </div>
+                    <div className="grid gap-2">
+                      <Label htmlFor="year">Year</Label>
+                      <Input
+                        id="year"
+                        type="number"
+                        value={formData.publication_year}
+                        onChange={(e) => setFormData({...formData, publication_year: e.target.value})}
+                      />
+                    </div>
+                  </div>
+                  <div className="grid gap-2">
+                    <Label htmlFor="isbn">ISBN</Label>
+                    <Input
+                      id="isbn"
+                      value={formData.isbn}
+                      onChange={(e) => setFormData({...formData, isbn: e.target.value})}
+                    />
+                  </div>
+                  <div className="grid gap-2">
+                    <Label htmlFor="description">Description</Label>
+                    <Textarea
+                      id="description"
+                      value={formData.description}
+                      onChange={(e) => setFormData({...formData, description: e.target.value})}
+                      rows={3}
+                    />
+                  </div>
+                </div>
+                <div className="flex justify-end gap-2">
+                  <Button variant="outline" onClick={() => setIsAddDialogOpen(false)}>
+                    Cancel
+                  </Button>
+                  <Button onClick={addBook}>Add Book</Button>
+                </div>
+              </DialogContent>
+            </Dialog>
+          </LibrarianOrAdmin>
         </div>
 
         {/* Books Grid */}
@@ -471,46 +730,54 @@ export default function LibraryManagement() {
                   </div>
                   
                   <div className="flex gap-2 mt-4">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => openEditDialog(book)}
-                      className="flex items-center gap-1"
-                    >
-                      <Edit className="h-3 w-3" />
-                      Edit
-                    </Button>
+                    <LibrarianOrAdmin>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => openEditDialog(book)}
+                        className="flex items-center gap-1"
+                      >
+                        <Edit className="h-3 w-3" />
+                        Edit
+                      </Button>
+                    </LibrarianOrAdmin>
                     
                     {book.is_checked_out ? (
-                      <Button
-                        size="sm"
-                        onClick={() => checkinBook(book.id)}
-                        className="flex items-center gap-1"
-                      >
-                        <CheckCircle className="h-3 w-3" />
-                        Check In
-                      </Button>
+                      <LibrarianOrAdmin>
+                        <Button
+                          size="sm"
+                          onClick={() => checkinBook(book.id)}
+                          className="flex items-center gap-1"
+                        >
+                          <CheckCircle className="h-3 w-3" />
+                          Check In
+                        </Button>
+                      </LibrarianOrAdmin>
                     ) : (
-                      <Button
-                        size="sm"
-                        onClick={() => openCheckoutDialog(book)}
-                        className="flex items-center gap-1"
-                      >
-                        <XCircle className="h-3 w-3" />
-                        Check Out
-                      </Button>
+                      <AuthenticatedOnly>
+                        <Button
+                          size="sm"
+                          onClick={() => openCheckoutDialog(book)}
+                          className="flex items-center gap-1"
+                        >
+                          <XCircle className="h-3 w-3" />
+                          Check Out
+                        </Button>
+                      </AuthenticatedOnly>
                     )}
                     
-                    <Button
-                      variant="destructive"
-                      size="sm"
-                      onClick={() => deleteBook(book.id)}
-                      disabled={book.is_checked_out}
-                      className="flex items-center gap-1"
-                    >
-                      <Trash2 className="h-3 w-3" />
-                      Delete
-                    </Button>
+                    <AdminOnly>
+                      <Button
+                        variant="destructive"
+                        size="sm"
+                        onClick={() => deleteBook(book.id)}
+                        disabled={book.is_checked_out}
+                        className="flex items-center gap-1"
+                      >
+                        <Trash2 className="h-3 w-3" />
+                        Delete
+                      </Button>
+                    </AdminOnly>
                   </div>
                 </CardContent>
               </Card>
