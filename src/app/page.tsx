@@ -11,7 +11,7 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Search, Plus, BookOpen, CheckCircle, XCircle, Edit, Trash2, User, Calendar } from 'lucide-react'
 import { AuthHeader } from './components/AuthHeader'
-import { PermissionWrapper, LibrarianOrAdmin, AdminOnly, AuthenticatedOnly } from './components/PermissionWrapper'
+import { LibrarianOrAdmin, AdminOnly, AuthenticatedOnly } from './components/PermissionWrapper'
 // Import admin helpers for development
 import '@/lib/admin-helpers'
 

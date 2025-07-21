@@ -39,8 +39,12 @@ export const makeMember = (email: string) => setUserRole(email, 'member')
 
 // Make functions available globally in development
 if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   ;(window as any).setUserRole = setUserRole
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   ;(window as any).makeAdmin = makeAdmin
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   ;(window as any).makeLibrarian = makeLibrarian
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   ;(window as any).makeMember = makeMember
 }
