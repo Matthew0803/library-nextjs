@@ -12,6 +12,8 @@ import { Textarea } from '@/components/ui/textarea'
 import { Search, Plus, BookOpen, CheckCircle, XCircle, Edit, Trash2, User, Calendar } from 'lucide-react'
 import { AuthHeader } from './components/AuthHeader'
 import { PermissionWrapper, LibrarianOrAdmin, AdminOnly, AuthenticatedOnly } from './components/PermissionWrapper'
+// Import admin helpers for development
+import '@/lib/admin-helpers'
 
 // API configuration - will be updated for production
 const API_BASE = process.env.NODE_ENV === 'production' 
@@ -341,19 +343,42 @@ export default function LibraryManagement() {
     }
     
     try {
-      const accessToken = session.accessToken || ''
+      // Get the Google access token from the session
+      const googleToken = session.accessToken || ''
       
-      if (!accessToken) {
-        console.error('No access token available in session')
+      if (!googleToken) {
+        console.error('No Google access token available in session')
         alert('Authentication error: Please sign in again')
         return
       }
       
+      // First, exchange Google token for Flask JWT tokens
+      const authResponse = await fetch(`${API_BASE}/auth/google`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          token: googleToken
+        })
+      })
+      
+      if (!authResponse.ok) {
+        const errorText = await authResponse.text()
+        console.error('Authentication failed with status:', authResponse.status)
+        alert(`Authentication failed: ${errorText}. Please sign in again.`)
+        return
+      }
+      
+      const authData = await authResponse.json()
+      const flaskJWT = authData.access_token
+      
+      // Now use Flask JWT for the actual API call
       const response = await fetch(`${API_BASE}/books/${selectedBook.id}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${accessToken}`,
+          'Authorization': `Bearer ${flaskJWT}`,
         },
         credentials: 'include',
         body: JSON.stringify({
@@ -382,10 +407,41 @@ export default function LibraryManagement() {
     
     if (window.confirm('Are you sure you want to delete this book?')) {
       try {
+        // Get the Google access token from the session
+        const googleToken = session.accessToken || ''
+        
+        if (!googleToken) {
+          console.error('No Google access token available in session')
+          alert('Authentication error: Please sign in again')
+          return
+        }
+        
+        // First, exchange Google token for Flask JWT tokens
+        const authResponse = await fetch(`${API_BASE}/auth/google`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            token: googleToken
+          })
+        })
+        
+        if (!authResponse.ok) {
+          const errorText = await authResponse.text()
+          console.error('Authentication failed with status:', authResponse.status)
+          alert(`Authentication failed: ${errorText}. Please sign in again.`)
+          return
+        }
+        
+        const authData = await authResponse.json()
+        const flaskJWT = authData.access_token
+        
+        // Now use Flask JWT for the actual API call
         const response = await fetch(`${API_BASE}/books/${bookId}`, {
           method: 'DELETE',
           headers: {
-            'Authorization': `Bearer ${session.accessToken}`,
+            'Authorization': `Bearer ${flaskJWT}`,
           },
         })
         
@@ -404,11 +460,42 @@ export default function LibraryManagement() {
     if (!selectedBook || !session) return
     
     try {
+      // Get the Google access token from the session
+      const googleToken = session.accessToken || ''
+      
+      if (!googleToken) {
+        console.error('No Google access token available in session')
+        alert('Authentication error: Please sign in again')
+        return
+      }
+      
+      // First, exchange Google token for Flask JWT tokens
+      const authResponse = await fetch(`${API_BASE}/auth/google`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          token: googleToken
+        })
+      })
+      
+      if (!authResponse.ok) {
+        const errorText = await authResponse.text()
+        console.error('Authentication failed with status:', authResponse.status)
+        alert(`Authentication failed: ${errorText}. Please sign in again.`)
+        return
+      }
+      
+      const authData = await authResponse.json()
+      const flaskJWT = authData.access_token
+      
+      // Now use Flask JWT for the actual API call
       const response = await fetch(`${API_BASE}/books/${selectedBook.id}/checkout`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${session.accessToken}`,
+          'Authorization': `Bearer ${flaskJWT}`,
         },
         body: JSON.stringify(checkoutData),
       })
@@ -438,19 +525,42 @@ export default function LibraryManagement() {
     }
     
     try {
-      const accessToken = session.accessToken || ''
+      // Get the Google access token from the session
+      const googleToken = session.accessToken || ''
       
-      if (!accessToken) {
-        console.error('No access token available in session')
+      if (!googleToken) {
+        console.error('No Google access token available in session')
         alert('Authentication error: Please sign in again')
         return
       }
       
+      // First, exchange Google token for Flask JWT tokens
+      const authResponse = await fetch(`${API_BASE}/auth/google`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          token: googleToken
+        })
+      })
+      
+      if (!authResponse.ok) {
+        const errorText = await authResponse.text()
+        console.error('Authentication failed with status:', authResponse.status)
+        alert(`Authentication failed: ${errorText}. Please sign in again.`)
+        return
+      }
+      
+      const authData = await authResponse.json()
+      const flaskJWT = authData.access_token
+      
+      // Now use Flask JWT for the actual API call
       const response = await fetch(`${API_BASE}/books/${bookId}/checkin`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${accessToken}`,
+          'Authorization': `Bearer ${flaskJWT}`,
         },
         credentials: 'include',
       })
